@@ -1,0 +1,98 @@
+networks:
+  hexaroot-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
+          gateway: 192.168.100.1
+
+
+services:
+
+  dvwa:
+    image: vulnerables/web-dvwa
+    container_name: hexaroot-dvwa
+    networks:
+      hexaroot-net:
+        ipv4_address: 192.168.100.10
+
+    ports:
+      - "8080:80"
+    environment:
+      - MYSQL_HOSTNAME=192.168.100.11
+      - MYSQL_DATABASE=dvwa
+      - MYSQL_USERNAME=dvwa
+      - MYSQL_PASSWORD=dvwa_pass_2026
+    restart: unless-stopped
+    depends_on:
+      - db 
+
+
+  db:
+    image: mysql:5.7
+    container_name: hexaroot-db
+    networks:
+      hexaroot-net:
+        ipv4_address: 192.168.100.11
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_secret_2026
+      - MYSQL_DATABASE=hexaroot_data
+      - MYSQL_USER=dvwa
+      - MYSQL_PASSWORD=dvwa_pass_2026
+
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    restart: unless-stopped
+    
+  internal:
+    image: ubuntu:22.04
+    container_name: hexaroot-internal
+    networks:
+      hexaroot-net:
+        ipv4_address: 192.168.100.12
+    ports:
+      - "2222:22"
+    command: >
+      bash -c "apt-get update -qq &&
+               apt-get install -y -qq openssh-server netcat-openbsd curl &&
+               echo 'root:toor' | chpasswd &&
+               useradd -m hexaadmin 2>/dev/null || true &&
+               echo 'hexaadmin:admin123' | chpasswd &&
+               mkdir -p /run/sshd &&
+               sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config &&
+               sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config &&
+               mkdir -p /opt/confidential &&
+               echo 'DB_PASS=root_secret_2026' > /opt/confidential/secrets.txt &&
+               echo 'API_KEY=hexa_prod_sk_9x82REAL' >> /opt/confidential/secrets.txt &&
+               /usr/sbin/sshd -D"
+    restart: unless-stopped
+  
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.10
+    container_name: hexaroot-elastic
+    networks:  
+      hexaroot-net:
+        ipv4_address: 192.168.100.20
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.10
+    container_name: hexaroot-siem
+    networks:
+      hexaroot-net:
+        ipv4_address: 192.168.100.21
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://192.168.100.20:9200
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped        
